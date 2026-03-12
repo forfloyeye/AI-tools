@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("POSTGRES_PRISMA_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
+}
+
+model User {
+  id             String       @id @default(cuid())
+  email          String       @unique
+  passwordHash   String
+  freeCredits    Int          @default(300)
+  paidCredits    Int          @default(0)
+  lastLoginDate  String       @default("")
+  createdAt      DateTime     @default(now())
+  redeemCodes    RedeemCode[]
+}
+
+model RedeemCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  creditValue Int
+  isUsed      Boolean   @default(false)
+  usedAt      DateTime?
+  usedById    String?
+  usedBy      User?     @relation(fields: [usedById], references: [id])
+  createdAt   DateTime  @default(now())
+}

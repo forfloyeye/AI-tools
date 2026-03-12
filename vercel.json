@@ -1,8 +1,7 @@
 {
-  "buildCommand": "cd frontend/ai-tools && npm install && npm run build",
-  "outputDirectory": "frontend/ai-tools/dist",
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/frontend/ai-tools/api/index.ts" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "buildCommand": "cd frontend/nextjs && npm install && npm run build",
+  "outputDirectory": "frontend/nextjs/.next",
+  "framework": "nextjs",
+  "installCommand": "cd frontend/nextjs && npm install"
 }
+
