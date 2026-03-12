@@ -1,11 +1,6 @@
 {
   "buildCommand": "cd frontend/ai-tools && npm install && npm run build",
   "outputDirectory": "frontend/ai-tools/dist",
-  "functions": {
-    "frontend/ai-tools/api/index.ts": {
-      "runtime": "@vercel/node"
-    }
-  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/frontend/ai-tools/api/index.ts" },
     { "source": "/(.*)", "destination": "/index.html" }
