@@ -5,8 +5,10 @@ import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 确保 data 目录存在（SQLite 数据库文件自动创建，无需任何环境配置）
-const dataDir = path.join(__dirname, '..', 'data');
+// 在 Vercel 上使用 /tmp（可写目录），本地使用 data/ 目录
+const dataDir = process.env.VERCEL
+  ? '/tmp/app-data'
+  : path.join(__dirname, '..', 'data');
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
 }
