@@ -4,7 +4,7 @@ import "./globals.css";
 import { AppProvider } from "@/context/AppContext";
 import { AppShell } from "@/components/AppShell";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
   title: "E-Tool | 电商 AI 图片工具",
