@@ -1,6 +1,3 @@
-{
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "_note": "Root Directory must be set to 'frontend/nextjs' in Vercel project settings. This file is intentionally minimal."
-}
+{}
 
 
