@@ -20,6 +20,7 @@ interface AppContextType {
   login: (email: string, password: string, isRegister?: boolean) => Promise<void>;
   logout: () => void;
   deductPoints: (amount: number) => Promise<boolean>;
+  refreshProfile: () => Promise<boolean>;
   openAuthModal: (closable?: boolean) => void;
   closeAuthModal: (force?: boolean) => void;
   showToast: (message: string, type?: 'success' | 'error') => void;
@@ -35,28 +36,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [toast, setToast] = useState<Toast | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
 
-  // 应用启动时恢复会话（Token 存在则自动登录）
-  useEffect(() => {
+  const refreshProfile = async (): Promise<boolean> => {
     const token = localStorage.getItem('token');
     if (!token) {
-      setIsInitializing(false);
-      return;
+      setUser(null);
+      setPoints(0);
+      return false;
     }
-    fetch('/api/user/me', { headers: { Authorization: `Bearer ${token}` } })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) {
-          setUser({
-            email: data.email,
-            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.email}`,
-          });
-          setPoints(data.totalPoints);
-        } else {
-          localStorage.removeItem('token');
-        }
-      })
-      .catch(() => localStorage.removeItem('token'))
-      .finally(() => setIsInitializing(false));
+
+    try {
+      const res = await fetch('/api/user/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        localStorage.removeItem('token');
+        setUser(null);
+        setPoints(0);
+        return false;
+      }
+
+      const data = await res.json() as { email: string; totalPoints: number };
+      setUser({
+        email: data.email,
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.email}`,
+      });
+      setPoints(data.totalPoints);
+      return true;
+    } catch {
+      localStorage.removeItem('token');
+      setUser(null);
+      setPoints(0);
+      return false;
+    }
+  };
+
+  // 应用启动时恢复会话（Token 存在则自动登录）
+  useEffect(() => {
+    refreshProfile().finally(() => setIsInitializing(false));
   }, []);
 
   const login = async (email: string, password: string, isRegister = false) => {
@@ -136,6 +150,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         login,
         logout,
         deductPoints,
+        refreshProfile,
         openAuthModal,
         closeAuthModal,
         showToast,

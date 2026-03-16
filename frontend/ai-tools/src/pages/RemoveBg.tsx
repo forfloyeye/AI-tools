@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { UploadCloud, Download, RefreshCw, ArrowLeft } from 'lucide-react';
@@ -15,37 +15,294 @@ function cn(...inputs: ClassValue[]) {
 type Status = 'idle' | 'processing' | 'success';
 type BgColor = 'transparent' | 'white' | 'black';
 
+type AlphaBounds = { x: number; y: number; width: number; height: number };
+
+const PRESET_TARGET_SIZE: Partial<Record<PresetId, { width: number; height: number }>> = {
+  'tb-1-1': { width: 800, height: 800 },
+  'tb-3-4': { width: 900, height: 1200 },
+  pdd: { width: 1000, height: 1000 },
+  'ratio-1-1': { width: 1080, height: 1080 },
+  'ratio-2-3': { width: 1200, height: 1800 },
+  'ratio-3-4': { width: 1080, height: 1440 },
+  'ratio-9-16': { width: 1080, height: 1920 },
+};
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('图片加载失败'));
+    img.src = url;
+  });
+}
+
+function detectAlphaBounds(img: HTMLImageElement): AlphaBounds {
+  const width = img.naturalWidth;
+  const height = img.naturalHeight;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return { x: 0, y: 0, width, height };
+  }
+
+  ctx.drawImage(img, 0, 0, width, height);
+  const { data } = ctx.getImageData(0, 0, width, height);
+
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const alpha = data[(y * width + x) * 4 + 3];
+      if (alpha > 8) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX === -1 || maxY === -1) {
+    return { x: 0, y: 0, width, height };
+  }
+
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+  };
+}
+
+function fillBackground(ctx: CanvasRenderingContext2D, width: number, height: number, bgColor: BgColor) {
+  if (bgColor === 'transparent') return;
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, width, height);
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('图片生成失败'));
+        return;
+      }
+      resolve(blob);
+    }, 'image/png');
+  });
+}
+
+async function buildPresetBlob(sourceUrl: string, preset: PresetId, bgColor: BgColor): Promise<Blob> {
+  const img = await loadImage(sourceUrl);
+  const naturalWidth = img.naturalWidth;
+  const naturalHeight = img.naturalHeight;
+  const bounds = detectAlphaBounds(img);
+
+  const target = PRESET_TARGET_SIZE[preset];
+  const canvas = document.createElement('canvas');
+
+  if (preset === 'original') {
+    // 原尺寸: 保持原始分辨率与比例，不裁切不缩放。
+    canvas.width = naturalWidth;
+    canvas.height = naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('画布初始化失败');
+    fillBackground(ctx, canvas.width, canvas.height, bgColor);
+    ctx.drawImage(img, 0, 0, naturalWidth, naturalHeight);
+    return canvasToPngBlob(canvas);
+  }
+
+  if (preset === 'crop') {
+    // 裁剪到边缘: 基于 alpha 通道识别主体边界并去除空白。
+    canvas.width = bounds.width;
+    canvas.height = bounds.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('画布初始化失败');
+    fillBackground(ctx, canvas.width, canvas.height, bgColor);
+    ctx.drawImage(
+      img,
+      bounds.x,
+      bounds.y,
+      bounds.width,
+      bounds.height,
+      0,
+      0,
+      bounds.width,
+      bounds.height
+    );
+    return canvasToPngBlob(canvas);
+  }
+
+  if (!target) {
+    throw new Error('未知尺寸预设');
+  }
+
+  // 平台尺寸: 先裁到主体边缘，再按目标比例等比放大并居中铺满。
+  canvas.width = target.width;
+  canvas.height = target.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('画布初始化失败');
+
+  fillBackground(ctx, canvas.width, canvas.height, bgColor);
+
+  const scale = Math.min(canvas.width / bounds.width, canvas.height / bounds.height);
+  const drawWidth = Math.round(bounds.width * scale);
+  const drawHeight = Math.round(bounds.height * scale);
+  const dx = Math.floor((canvas.width - drawWidth) / 2);
+  const dy = Math.floor((canvas.height - drawHeight) / 2);
+
+  ctx.drawImage(
+    img,
+    bounds.x,
+    bounds.y,
+    bounds.width,
+    bounds.height,
+    dx,
+    dy,
+    drawWidth,
+    drawHeight
+  );
+
+  return canvasToPngBlob(canvas);
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('读取图片失败'));
+        return;
+      }
+      const base64 = result.split(',')[1];
+      if (!base64) {
+        reject(new Error('图片格式不支持'));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('读取图片失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export const RemoveBg: React.FC = () => {
   const navigate = useNavigate();
-  const { deductPoints, showToast } = useAppContext();
+  const { refreshProfile, showToast } = useAppContext();
   const [status, setStatus] = useState<Status>('idle');
   const [aspectRatio, setAspectRatio] = useState<PresetId>('original');
   const [bgColor, setBgColor] = useState<BgColor>('transparent');
-  const [image, setImage] = useState<string | null>(null);
+  const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
+  const [rawResultImageUrl, setRawResultImageUrl] = useState<string | null>(null);
+  const [renderedImageUrl, setRenderedImageUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const showToastRef = useRef(showToast);
 
-  const handleFile = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
-    
-    const url = URL.createObjectURL(file);
-    setImage(url);
+  useEffect(() => {
+    showToastRef.current = showToast;
+  }, [showToast]);
+
+  useEffect(() => {
+    if (status !== 'success' || !rawResultImageUrl) {
+      return;
+    }
+
+    let cancelled = false;
+
+    buildPresetBlob(rawResultImageUrl, aspectRatio, bgColor)
+      .then((blob) => {
+        if (cancelled) return;
+        const nextUrl = URL.createObjectURL(blob);
+        setRenderedImageUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return nextUrl;
+        });
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : '尺寸处理失败';
+        showToastRef.current(msg, 'error');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [aspectRatio, bgColor, rawResultImageUrl, status]);
+
+  const handleFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      showToast('仅支持图片文件', 'error');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('请上传 10MB 以内图片', 'error');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      showToast('请先登录后再抠图', 'error');
+      navigate('/');
+      return;
+    }
+
+    if (sourceImageUrl) URL.revokeObjectURL(sourceImageUrl);
+    if (rawResultImageUrl) URL.revokeObjectURL(rawResultImageUrl);
+    if (renderedImageUrl) URL.revokeObjectURL(renderedImageUrl);
+
+    const previewUrl = URL.createObjectURL(file);
+    setSourceImageUrl(previewUrl);
+    setRawResultImageUrl(null);
+    setRenderedImageUrl(null);
     setStatus('processing');
 
-    // Mock processing delay
-    setTimeout(async () => {
-      try {
-        const success = await deductPoints(10);
-        if (success) {
-          setStatus('success');
+    try {
+      const imageBase64 = await fileToBase64(file);
+      const res = await fetch('/api/remove-bg/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          imageBase64,
+          filename: file.name,
+        }),
+      });
+
+      if (!res.ok) {
+        let msg = '抠图失败，请稍后重试';
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const err = await res.json() as { error?: string };
+          msg = err.error || msg;
         } else {
-          navigate('/');
+          const text = await res.text();
+          if (text) msg = text;
         }
-      } catch {
-        setStatus('idle');
-        setImage(null);
-        showToast('网络异常，请重试', 'error');
+        throw new Error(msg);
       }
-    }, 2000);
+
+      const blob = await res.blob();
+      const outputUrl = URL.createObjectURL(blob);
+      setRawResultImageUrl(outputUrl);
+
+      await refreshProfile();
+
+      setStatus('success');
+      showToast('抠图成功，已扣除 10 点', 'success');
+    } catch (err: unknown) {
+      setStatus('idle');
+      setRawResultImageUrl(null);
+      setRenderedImageUrl(null);
+      const msg = err instanceof Error ? err.message : '网络异常，请重试';
+      showToast(msg, 'error');
+    }
   };
 
   const onDrop = (e: React.DragEvent) => {
@@ -60,17 +317,29 @@ export const RemoveBg: React.FC = () => {
   };
 
   const reset = () => {
+    if (sourceImageUrl) URL.revokeObjectURL(sourceImageUrl);
+    if (rawResultImageUrl) URL.revokeObjectURL(rawResultImageUrl);
+    if (renderedImageUrl) URL.revokeObjectURL(renderedImageUrl);
     setStatus('idle');
-    setImage(null);
+    setSourceImageUrl(null);
+    setRawResultImageUrl(null);
+    setRenderedImageUrl(null);
     setAspectRatio('original');
     setBgColor('transparent');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const download = () => {
-    // Mock download
+    const downloadUrl = renderedImageUrl || rawResultImageUrl;
+    if (!downloadUrl) {
+      showToast('暂无可下载图片', 'error');
+      return;
+    }
     const link = document.createElement('a');
-    link.href = image || '';
-    link.download = 'cutout-image.png';
+    link.href = downloadUrl;
+    link.download = `cutout-${aspectRatio}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -140,8 +409,8 @@ export const RemoveBg: React.FC = () => {
                 exit={{ opacity: 0 }}
                 className="absolute inset-0 flex items-center justify-center bg-slate-900/10 backdrop-blur-sm z-10"
               >
-                {image && (
-                  <img src={image} alt="Original" className="absolute inset-0 w-full h-full object-contain opacity-30" />
+                {sourceImageUrl && (
+                  <img src={sourceImageUrl} alt="Original" className="absolute inset-0 w-full h-full object-contain opacity-30" />
                 )}
                 {/* Scanning line animation */}
                 <motion.div 
@@ -168,9 +437,8 @@ export const RemoveBg: React.FC = () => {
                   aspectRatioClass,
                   bgColorClass
                 )}>
-                  {/* Mock cutout effect using object-contain. In reality, this would be a transparent PNG */}
                   <img 
-                    src={image!} 
+                    src={(renderedImageUrl || rawResultImageUrl)!} 
                     alt="Cutout result" 
                     className="w-full h-full object-contain drop-shadow-xl" 
                   />
@@ -187,7 +455,7 @@ export const RemoveBg: React.FC = () => {
         )}>
           <div className="bg-white rounded-3xl p-5 shadow-sm ring-1 ring-slate-200 shrink-0">
             <h3 className="text-sm font-semibold text-slate-900 mb-3 uppercase tracking-wider">尺寸预设</h3>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
               {SIZE_PRESETS.map((preset) => (
                 <button
                   key={preset.id}

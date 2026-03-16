@@ -1,7 +1,16 @@
 import React from 'react';
-import { Image as ImageIcon, Crop, User } from 'lucide-react';
+import { Image as ImageIcon, Crop } from 'lucide-react';
 
-export type PresetId = 'original' | 'crop' | 'tb-1-1' | 'tb-3-4' | 'pdd' | 'xhs' | '1-inch' | '2-inch' | '1-1' | '3-2' | '2-3';
+export type PresetId =
+  | 'original'
+  | 'crop'
+  | 'tb-1-1'
+  | 'tb-3-4'
+  | 'pdd'
+  | 'ratio-1-1'
+  | 'ratio-2-3'
+  | 'ratio-3-4'
+  | 'ratio-9-16';
 
 export interface SizePreset {
   id: PresetId;
@@ -51,48 +60,28 @@ export const SIZE_PRESETS: SizePreset[] = [
     icon: <span className="text-xl font-black tracking-tighter leading-none">拼</span>, 
     ratioClass: 'aspect-square' 
   },
-  { 
-    id: 'xhs', 
-    name: '小红书封面', 
-    icon: <span className="text-[11px] font-black tracking-tighter leading-none">小红书</span>, 
-    ratioClass: 'aspect-[3/4]' 
+  {
+    id: 'ratio-1-1',
+    name: '1:1',
+    icon: <div className="w-5 h-5 border-[1.5px] border-current rounded-sm" />,
+    ratioClass: 'aspect-square'
   },
-  { 
-    id: '1-inch', 
-    name: '一寸头像', 
-    icon: (
-      <div className="w-4 h-5 border-[1.5px] border-current rounded-sm flex items-center justify-center">
-        <User className="w-3 h-3 stroke-[2]" />
-      </div>
-    ), 
-    ratioClass: 'aspect-[5/7]' 
+  {
+    id: 'ratio-2-3',
+    name: '2:3',
+    icon: <div className="w-4 h-6 border-[1.5px] border-current rounded-sm" />,
+    ratioClass: 'aspect-[2/3]'
   },
-  { 
-    id: '2-inch', 
-    name: '二寸头像', 
-    icon: (
-      <div className="w-5 h-6 border-[1.5px] border-current rounded-sm flex items-center justify-center">
-        <User className="w-3.5 h-3.5 stroke-[2]" />
-      </div>
-    ), 
-    ratioClass: 'aspect-[5/7]' 
+  {
+    id: 'ratio-3-4',
+    name: '3:4',
+    icon: <div className="w-4 h-5 border-[1.5px] border-current rounded-sm" />,
+    ratioClass: 'aspect-[3/4]'
   },
-  { 
-    id: '1-1', 
-    name: '1:1', 
-    icon: <div className="w-5 h-5 border-[1.5px] border-current rounded-sm" />, 
-    ratioClass: 'aspect-square' 
-  },
-  { 
-    id: '3-2', 
-    name: '3:2', 
-    icon: <div className="w-6 h-4 border-[1.5px] border-current rounded-sm" />, 
-    ratioClass: 'aspect-[3/2]' 
-  },
-  { 
-    id: '2-3', 
-    name: '2:3', 
-    icon: <div className="w-4 h-6 border-[1.5px] border-current rounded-sm" />, 
-    ratioClass: 'aspect-[2/3]' 
+  {
+    id: 'ratio-9-16',
+    name: '9:16',
+    icon: <div className="w-3 h-6 border-[1.5px] border-current rounded-sm" />,
+    ratioClass: 'aspect-[9/16]'
   },
 ];
