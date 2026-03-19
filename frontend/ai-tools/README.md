@@ -28,16 +28,34 @@ GEMINI_API_KEY=your_gemini_api_key
 REMOVE_BG_API_KEY=your_remove_bg_api_key
 ```
 
+### 一条命令同时启动前后端
+
+```bash
+cd frontend/ai-tools
+npm run dev:all
+```
+
+该命令会同时启动：
+
+- 前端 Vite：`http://localhost:3000`
+- 后端 Express API：`http://localhost:3001`
+
+如果 3000 或 3001 被本项目上一次残留的开发进程占用，`npm run dev:all` 会先自动清理，再重新启动。
+
+### 备用：分开启动前后端
+
 ### 启动后端服务（Express API，端口 3001）
 
 ```bash
-cd /Users/macmini/Coding/AI-tools/frontend/ai-tools && npm run server:watch
+cd frontend/ai-tools
+npm run server:watch
 ```
 
 ### 启动前端服务（Vite，端口 3000）
 
 ```bash
-cd /Users/macmini/Coding/AI-tools/frontend/ai-tools && npm run dev
+cd frontend/ai-tools
+npm run dev
 ```
 
 > 两个服务需同时运行。前端通过 Vite 代理将 `/api` 请求转发到后端 `localhost:3001`。

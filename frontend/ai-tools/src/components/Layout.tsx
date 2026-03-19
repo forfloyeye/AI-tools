@@ -1,14 +1,17 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { Navbar } from './Navbar';
 import { AuthModal } from './AuthModal';
 import { Toast } from './Toast';
 import { useAppContext } from '../context/AppContext';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isAuthModalOpen } = useAppContext();
+  const { isAuthModalOpen } = useAppContext();
+  const location = useLocation();
+  const isAiScenePage = location.pathname === '/tools/ai-scene';
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 relative overflow-hidden">
+    <div className="h-full bg-slate-50 flex flex-col font-sans text-slate-900 relative overflow-hidden">
       {/* Decorative background blobs */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl pointer-events-none z-0">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-200/30 blur-[100px]" />
@@ -17,7 +20,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </div>
 
       <Navbar />
-      <main className="flex-1 flex flex-col relative z-10 overflow-y-auto overflow-x-hidden custom-scrollbar">
+      <main
+        className={isAiScenePage
+          ? 'flex-1 min-h-0 flex flex-col relative z-10 overflow-hidden'
+          : 'flex-1 min-h-0 flex flex-col relative z-10 overflow-y-auto overflow-x-hidden custom-scrollbar'}
+      >
         {children}
       </main>
       

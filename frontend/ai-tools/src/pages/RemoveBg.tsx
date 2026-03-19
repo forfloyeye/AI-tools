@@ -27,6 +27,12 @@ const PRESET_TARGET_SIZE: Partial<Record<PresetId, { width: number; height: numb
   'ratio-9-16': { width: 1080, height: 1920 },
 };
 
+function getPresetAspectRatio(preset: PresetId): number | null {
+  const target = PRESET_TARGET_SIZE[preset];
+  if (!target) return null;
+  return target.width / target.height;
+}
+
 function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -201,6 +207,7 @@ export const RemoveBg: React.FC = () => {
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
   const [rawResultImageUrl, setRawResultImageUrl] = useState<string | null>(null);
   const [renderedImageUrl, setRenderedImageUrl] = useState<string | null>(null);
+  const [previewAspectRatio, setPreviewAspectRatio] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const showToastRef = useRef(showToast);
 
@@ -233,6 +240,33 @@ export const RemoveBg: React.FC = () => {
       cancelled = true;
     };
   }, [aspectRatio, bgColor, rawResultImageUrl, status]);
+
+  useEffect(() => {
+    const previewUrl = renderedImageUrl || rawResultImageUrl;
+    if (!previewUrl || status !== 'success') {
+      setPreviewAspectRatio(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    loadImage(previewUrl)
+      .then((img) => {
+        if (cancelled) return;
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          setPreviewAspectRatio(img.naturalWidth / img.naturalHeight);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreviewAspectRatio(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rawResultImageUrl, renderedImageUrl, status]);
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -347,6 +381,8 @@ export const RemoveBg: React.FC = () => {
 
   // Calculate container aspect ratio classes
   const aspectRatioClass = SIZE_PRESETS.find(p => p.id === aspectRatio)?.ratioClass || 'aspect-auto';
+  const activePreviewUrl = renderedImageUrl || rawResultImageUrl;
+  const finalExportAspectRatio = getPresetAspectRatio(aspectRatio) ?? previewAspectRatio;
 
   const bgColorClass = {
     'transparent': 'bg-grid-pattern',
@@ -432,16 +468,23 @@ export const RemoveBg: React.FC = () => {
                 animate={{ opacity: 1, scale: 1 }}
                 className="absolute inset-0 flex items-center justify-center p-8 bg-slate-200/50"
               >
-                <div className={cn(
-                  "relative w-full max-w-full max-h-full flex items-center justify-center shadow-sm transition-all duration-300 overflow-hidden rounded-xl",
-                  aspectRatioClass,
-                  bgColorClass
-                )}>
-                  <img 
-                    src={(renderedImageUrl || rawResultImageUrl)!} 
-                    alt="Cutout result" 
-                    className="w-full h-full object-contain drop-shadow-xl" 
-                  />
+                <div className="relative flex h-full w-full items-center justify-center rounded-[28px] bg-sky-50/70 p-4 shadow-inner">
+                  <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[24px] bg-white/35">
+                    <div
+                      className="relative flex max-h-full max-w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-sky-400/90 bg-white shadow-[0_0_0_1px_rgba(56,189,248,0.14),0_0_24px_rgba(56,189,248,0.12)] transition-all duration-300"
+                      style={finalExportAspectRatio ? { aspectRatio: String(finalExportAspectRatio), height: '100%' } : undefined}
+                    >
+                      <div className={cn("absolute inset-0 rounded-2xl", bgColorClass)} />
+                      <div className="pointer-events-none absolute inset-0 rounded-2xl bg-sky-400/5" />
+                      {activePreviewUrl && (
+                        <img 
+                          src={activePreviewUrl} 
+                          alt="Cutout result" 
+                          className="relative z-10 h-full w-full object-contain drop-shadow-xl" 
+                        />
+                      )}
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}

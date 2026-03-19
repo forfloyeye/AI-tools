@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import authRoutes from './routes/auth.js';
 import removeBgRoutes from './routes/remove-bg.js';
+import aiSceneRoutes from './routes/ai-scene.js';
 import userRoutes from './routes/user.js';
 import './db.js'; // 触发数据库初始化
 
@@ -11,6 +12,7 @@ app.use(express.json({ limit: '15mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/remove-bg', removeBgRoutes);
+app.use('/api/ai-scene', aiSceneRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });

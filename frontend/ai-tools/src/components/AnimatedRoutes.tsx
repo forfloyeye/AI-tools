@@ -22,11 +22,13 @@ export const AnimatedRoutes: React.FC = () => {
   
   return (
     <AnimatePresence mode="wait">
-      <Routes location={location} key={location.pathname}>
-        <Route path="/" element={<PageWrapper><Dashboard /></PageWrapper>} />
-        <Route path="/tools/remove-bg" element={<PageWrapper><RemoveBg /></PageWrapper>} />
-        <Route path="/tools/ai-scene" element={<PageWrapper><AiScene /></PageWrapper>} />
-      </Routes>
+      <motion.div key={location.pathname} className="flex-1 flex">
+        <Routes location={location}>
+          <Route path="/" element={<PageWrapper><Dashboard /></PageWrapper>} />
+          <Route path="/tools/remove-bg" element={<PageWrapper><RemoveBg /></PageWrapper>} />
+          <Route path="/tools/ai-scene" element={<PageWrapper><AiScene /></PageWrapper>} />
+        </Routes>
+      </motion.div>
     </AnimatePresence>
   );
 };
