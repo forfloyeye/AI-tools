@@ -63,10 +63,17 @@ const SCENE_PROMPTS: Record<string, string> = {
 
 interface AiSceneBody {
   imageBase64?: unknown;
+  imageBase64List?: unknown;
   mimeType?: unknown;
+  sourceImages?: unknown;
   sceneId?: unknown;
   customPrompt?: unknown;
   count?: unknown;
+}
+
+interface SourceImagePayload {
+  imageBase64: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
 }
 
 type RouteError = Error & { code?: string; cause?: { code?: string } };
@@ -98,24 +105,50 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
     return res.status(500).json({ error: '服务端未配置 GEMINI_API_KEY' });
   }
 
-  const { imageBase64, mimeType, sceneId, customPrompt, count: countRaw } = req.body as AiSceneBody;
+  const { imageBase64, imageBase64List, mimeType, sourceImages, sceneId, customPrompt, count: countRaw } = req.body as AiSceneBody;
 
-  if (typeof imageBase64 !== 'string' || imageBase64.length === 0) {
-    return res.status(400).json({ error: '缺少图片数据' });
-  }
   if (typeof sceneId !== 'string' && typeof customPrompt !== 'string') {
     return res.status(400).json({ error: '请提供场景ID或自定义描述' });
   }
 
-  const imageMime = (typeof mimeType === 'string' ? mimeType : 'image/jpeg') as
-    | 'image/jpeg'
-    | 'image/png'
-    | 'image/webp';
+  const normalizeMimeType = (value: unknown): SourceImagePayload['mimeType'] =>
+    value === 'image/png' || value === 'image/webp' ? value : 'image/jpeg';
+
+  const normalizedSources: SourceImagePayload[] = Array.isArray(sourceImages)
+    ? sourceImages.flatMap((item) => {
+        if (!item || typeof item !== 'object') {
+          return [];
+        }
+
+        const payload = item as Record<string, unknown>;
+        if (typeof payload.imageBase64 !== 'string' || payload.imageBase64.length === 0) {
+          return [];
+        }
+
+        return [{ imageBase64: payload.imageBase64, mimeType: normalizeMimeType(payload.mimeType) }];
+      })
+    : Array.isArray(imageBase64List)
+      ? imageBase64List.flatMap((item) =>
+          typeof item === 'string' && item.length > 0
+            ? [{ imageBase64: item, mimeType: normalizeMimeType(mimeType) }]
+            : []
+        )
+      : typeof imageBase64 === 'string' && imageBase64.length > 0
+        ? [{ imageBase64, mimeType: normalizeMimeType(mimeType) }]
+        : [];
+
+  if (normalizedSources.length === 0) {
+    return res.status(400).json({ error: '缺少图片数据' });
+  }
+
+  if (normalizedSources.length > 6) {
+    return res.status(400).json({ error: '最多支持 6 张商品图' });
+  }
 
   const count = typeof countRaw === 'number'
     ? Math.min(Math.max(1, Math.floor(countRaw)), 4)
     : 1;
-  const totalCost = count * AI_SCENE_COST;
+  const totalCost = normalizedSources.length * count * AI_SCENE_COST;
 
   try {
     const user = db
@@ -143,7 +176,7 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
       },
     });
 
-    const generateOne = async (): Promise<{ data: string; mime: string }> => {
+    const generateOne = async (source: SourceImagePayload): Promise<{ data: string; mime: string }> => {
       const response = await ai.models.generateContent({
         model: 'gemini-2.0-flash-exp-image-generation',
         contents: [
@@ -158,7 +191,7 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
                   `Output only the final composite product photo with no extra text or borders.`,
               },
               {
-                inlineData: { mimeType: imageMime, data: imageBase64 },
+                inlineData: { mimeType: source.mimeType, data: source.imageBase64 },
               },
             ],
           },
@@ -177,8 +210,11 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
       throw new Error('AI 未返回图像结果，请稍后重试');
     };
 
-    // 并行生成所有图片
-    const results = await Promise.all(Array.from({ length: count }, () => generateOne()));
+    const results: Array<{ data: string; mime: string }> = [];
+    for (const source of normalizedSources) {
+      const batch = await Promise.all(Array.from({ length: count }, () => generateOne(source)));
+      results.push(...batch);
+    }
 
     // 成功后统一扣点
     const doDeduct = db.transaction(() => {
@@ -188,7 +224,7 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
 
       const total = fresh.free_credits + fresh.paid_credits;
       if (total < totalCost) {
-        throw Object.assign(new Error(`点数不足，生成 ${count} 张需要 ${totalCost} 点`), {
+        throw Object.assign(new Error(`点数不足，生成 ${normalizedSources.length * count} 张需要 ${totalCost} 点`), {
           code: 'INSUFFICIENT',
         });
       }
@@ -222,6 +258,7 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
     return res.json({
       imageData: imageDataList[0],        // 向后兼容
       imageDataList,
+      sourceImageCount: normalizedSources.length,
       pointsTotal: newFree + newPaid,
       pointsFree: newFree,
       pointsPaid: newPaid,

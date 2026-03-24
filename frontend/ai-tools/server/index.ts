@@ -8,4 +8,9 @@ app.listen(PORT, () => {
   console.log(`   - POST /api/auth/login`);
   console.log(`   - GET  /api/user/me`);
   console.log(`   - POST /api/user/deduct`);
+  console.log(`   - POST /api/ai-product-set/base-models/generate`);
+  console.log(`   - POST /api/ai-product-set/scenes/recommend`);
+  console.log(`   - POST /api/ai-product-set/batches/generate`);
+  console.log(`   - GET  /api/ai-product-set/history`);
+  console.log(`   - GET  /api/ai-product-set/history/:batchId`);
 });

@@ -10,6 +10,7 @@
     "server": "tsx server/index.ts",
     "server:watch": "tsx watch server/index.ts",
     "test:ai-scene": "tsx server/tests/ai-scene.integration.test.ts",
+    "test:ai-product-set": "tsx server/tests/ai-product-set.integration.test.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",

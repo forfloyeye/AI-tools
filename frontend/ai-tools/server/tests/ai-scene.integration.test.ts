@@ -94,6 +94,26 @@ async function run(): Promise<void> {
       'insufficient error should include required credits for count=2',
     );
 
+    const multiSourceInsufficient = await postJson<ErrorResponse>(
+      `${baseUrl}/api/ai-scene/generate`,
+      {
+        sourceImages: [
+          { imageBase64: 'dGVzdA==', mimeType: 'image/jpeg' },
+          { imageBase64: 'dGVzdA==', mimeType: 'image/png' },
+        ],
+        sceneId: 'minimal',
+        count: 2,
+      },
+      token,
+    );
+
+    assert.equal(multiSourceInsufficient.status, 402, 'multi source insufficient credits should return 402');
+    assert.match(
+      multiSourceInsufficient.data.error ?? '',
+      /120/,
+      'multi source insufficient error should include 2 sources * 2 count * 30 cost',
+    );
+
     const clampedCount = await postJson<ErrorResponse>(
       `${baseUrl}/api/ai-scene/generate`,
       {

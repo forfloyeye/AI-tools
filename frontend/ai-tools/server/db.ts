@@ -41,6 +41,40 @@ db.exec(`
     used_by_id   TEXT REFERENCES users(id),
     created_at   TEXT DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS ai_product_set_batches (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    product_payload_json TEXT NOT NULL,
+    model_config_json TEXT NOT NULL,
+    selected_model_image TEXT NOT NULL,
+    scene_selections_json TEXT NOT NULL,
+    result_count INTEGER NOT NULL,
+    total_cost INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS ai_product_set_results (
+    id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL REFERENCES ai_product_set_batches(id) ON DELETE CASCADE,
+    scene_code TEXT NOT NULL,
+    framing TEXT NOT NULL,
+    facing TEXT NOT NULL,
+    image_data TEXT NOT NULL,
+    sort_order INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS ai_product_set_favorite_models (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    image_data TEXT NOT NULL,
+    model_config_json TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_ai_product_set_favorite_models_user_created
+    ON ai_product_set_favorite_models(user_id, created_at DESC);
 `);
 
 console.log(`✅ SQLite 数据库已就绪：${DB_PATH}`);

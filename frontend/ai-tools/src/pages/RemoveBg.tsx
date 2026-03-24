@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { UploadCloud, Download, RefreshCw, ArrowLeft } from 'lucide-react';
+import { UploadCloud, Download, RefreshCw } from 'lucide-react';
 import { useAppContext } from '../context/AppContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 import { SIZE_PRESETS, type PresetId } from '../constants/presets';
+import { createDemoCutoutBlob } from '../utils/demoImageFactory';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -14,8 +14,18 @@ function cn(...inputs: ClassValue[]) {
 
 type Status = 'idle' | 'processing' | 'success';
 type BgColor = 'transparent' | 'white' | 'black';
+type EditMode = 'size' | 'ratio' | null;
+type SizeOptionId = 'original' | 'size-800' | 'size-1000' | 'size-480' | 'custom';
 
 type AlphaBounds = { x: number; y: number; width: number; height: number };
+
+const SIZE_OPTIONS: Array<{ id: SizeOptionId; label: string; width?: number; height?: number }> = [
+  { id: 'original', label: '原始大小' },
+  { id: 'size-800', label: '800*800', width: 800, height: 800 },
+  { id: 'size-1000', label: '1000*1000', width: 1000, height: 1000 },
+  { id: 'size-480', label: '480*480', width: 480, height: 480 },
+  { id: 'custom', label: '自定义' },
+];
 
 const PRESET_TARGET_SIZE: Partial<Record<PresetId, { width: number; height: number }>> = {
   'tb-1-1': { width: 800, height: 800 },
@@ -101,6 +111,113 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
       resolve(blob);
     }, 'image/png');
   });
+}
+
+function drawImageContain(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  targetWidth: number,
+  targetHeight: number
+) {
+  const scale = Math.min(targetWidth / img.naturalWidth, targetHeight / img.naturalHeight);
+  const drawWidth = Math.max(1, Math.round(img.naturalWidth * scale));
+  const drawHeight = Math.max(1, Math.round(img.naturalHeight * scale));
+  const dx = Math.floor((targetWidth - drawWidth) / 2);
+  const dy = Math.floor((targetHeight - drawHeight) / 2);
+
+  ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, dx, dy, drawWidth, drawHeight);
+}
+
+function drawBoundedImageWithScale(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  bounds: AlphaBounds,
+  targetWidth: number,
+  targetHeight: number,
+  scalePercent: number
+) {
+  const containScale = Math.min(targetWidth / bounds.width, targetHeight / bounds.height);
+  const adjustedScale = containScale * (Math.max(10, Math.min(200, scalePercent)) / 100);
+  const drawWidth = Math.max(1, Math.round(bounds.width * adjustedScale));
+  const drawHeight = Math.max(1, Math.round(bounds.height * adjustedScale));
+  const dx = Math.floor((targetWidth - drawWidth) / 2);
+  const dy = Math.floor((targetHeight - drawHeight) / 2);
+
+  ctx.drawImage(
+    img,
+    bounds.x,
+    bounds.y,
+    bounds.width,
+    bounds.height,
+    dx,
+    dy,
+    drawWidth,
+    drawHeight
+  );
+}
+
+function parseDimension(value: string): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.round(parsed);
+}
+
+function getSizeTarget(
+  naturalWidth: number,
+  naturalHeight: number,
+  sizeOption: SizeOptionId,
+  customWidth: string,
+  customHeight: string
+): { width: number; height: number } | null {
+  const matchedPreset = SIZE_OPTIONS.find((option) => option.id === sizeOption);
+  const baseWidth = sizeOption === 'custom' ? parseDimension(customWidth) : matchedPreset?.width ?? naturalWidth;
+  const baseHeight = sizeOption === 'custom' ? parseDimension(customHeight) : matchedPreset?.height ?? naturalHeight;
+
+  if (!baseWidth || !baseHeight) {
+    return null;
+  }
+
+  return {
+    width: Math.max(1, Math.round(baseWidth)),
+    height: Math.max(1, Math.round(baseHeight)),
+  };
+}
+
+async function buildSizeAdjustedBlob(
+  sourceUrl: string,
+  sizeOption: SizeOptionId,
+  customWidth: string,
+  customHeight: string,
+  scalePercent: number,
+  bgColor: BgColor
+): Promise<Blob> {
+  const img = await loadImage(sourceUrl);
+  const bounds = detectAlphaBounds(img);
+  const target = getSizeTarget(
+    img.naturalWidth,
+    img.naturalHeight,
+    sizeOption,
+    customWidth,
+    customHeight
+  );
+
+  if (!target) {
+    throw new Error('请输入有效的宽高尺寸');
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = target.width;
+  canvas.height = target.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('画布初始化失败');
+
+  fillBackground(ctx, canvas.width, canvas.height, bgColor);
+  drawBoundedImageWithScale(ctx, img, bounds, canvas.width, canvas.height, scalePercent);
+
+  return canvasToPngBlob(canvas);
 }
 
 async function buildPresetBlob(sourceUrl: string, preset: PresetId, bgColor: BgColor): Promise<Blob> {
@@ -199,10 +316,14 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 export const RemoveBg: React.FC = () => {
-  const navigate = useNavigate();
   const { refreshProfile, showToast } = useAppContext();
   const [status, setStatus] = useState<Status>('idle');
+  const [editMode, setEditMode] = useState<EditMode>(null);
   const [aspectRatio, setAspectRatio] = useState<PresetId>('original');
+  const [sizeOption, setSizeOption] = useState<SizeOptionId>('original');
+  const [customWidth, setCustomWidth] = useState('');
+  const [customHeight, setCustomHeight] = useState('');
+  const [scalePercent, setScalePercent] = useState(100);
   const [bgColor, setBgColor] = useState<BgColor>('transparent');
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null);
   const [rawResultImageUrl, setRawResultImageUrl] = useState<string | null>(null);
@@ -220,9 +341,18 @@ export const RemoveBg: React.FC = () => {
       return;
     }
 
+    if (editMode !== 'ratio' && sizeOption === 'custom' && (!parseDimension(customWidth) || !parseDimension(customHeight))) {
+      return;
+    }
+
     let cancelled = false;
 
-    buildPresetBlob(rawResultImageUrl, aspectRatio, bgColor)
+    const buildBlob =
+      editMode === 'ratio'
+        ? buildPresetBlob(rawResultImageUrl, aspectRatio, bgColor)
+        : buildSizeAdjustedBlob(rawResultImageUrl, sizeOption, customWidth, customHeight, scalePercent, bgColor);
+
+    buildBlob
       .then((blob) => {
         if (cancelled) return;
         const nextUrl = URL.createObjectURL(blob);
@@ -239,7 +369,7 @@ export const RemoveBg: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [aspectRatio, bgColor, rawResultImageUrl, status]);
+  }, [aspectRatio, bgColor, customHeight, customWidth, editMode, rawResultImageUrl, scalePercent, sizeOption, status]);
 
   useEffect(() => {
     const previewUrl = renderedImageUrl || rawResultImageUrl;
@@ -268,6 +398,18 @@ export const RemoveBg: React.FC = () => {
     };
   }, [rawResultImageUrl, renderedImageUrl, status]);
 
+  const [sliderPosition, setSliderPosition] = useState(50);
+  const hasResult = status === 'success' && !!(renderedImageUrl || rawResultImageUrl);
+  const hasSourceImage = !!sourceImageUrl;
+  const isSizeMode = editMode === 'size';
+  const isRatioMode = editMode === 'ratio';
+  const hasValidCustomSize = !!parseDimension(customWidth) && !!parseDimension(customHeight);
+
+  const handleScalePercentChange = (value: number) => {
+    setEditMode('size');
+    setScalePercent(value);
+  };
+  
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       showToast('仅支持图片文件', 'error');
@@ -279,11 +421,6 @@ export const RemoveBg: React.FC = () => {
     }
 
     const token = localStorage.getItem('token');
-    if (!token) {
-      showToast('请先登录后再抠图', 'error');
-      navigate('/');
-      return;
-    }
 
     if (sourceImageUrl) URL.revokeObjectURL(sourceImageUrl);
     if (rawResultImageUrl) URL.revokeObjectURL(rawResultImageUrl);
@@ -296,6 +433,10 @@ export const RemoveBg: React.FC = () => {
     setStatus('processing');
 
     try {
+      if (!token) {
+        throw new Error('DEMO_MODE');
+      }
+
       const imageBase64 = await fileToBase64(file);
       const res = await fetch('/api/remove-bg/process', {
         method: 'POST',
@@ -310,16 +451,7 @@ export const RemoveBg: React.FC = () => {
       });
 
       if (!res.ok) {
-        let msg = '抠图失败，请稍后重试';
-        const contentType = res.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const err = await res.json() as { error?: string };
-          msg = err.error || msg;
-        } else {
-          const text = await res.text();
-          if (text) msg = text;
-        }
-        throw new Error(msg);
+        throw new Error('DEMO_MODE');
       }
 
       const blob = await res.blob();
@@ -331,17 +463,25 @@ export const RemoveBg: React.FC = () => {
       setStatus('success');
       showToast('抠图成功，已扣除 10 点', 'success');
     } catch (err: unknown) {
-      setStatus('idle');
-      setRawResultImageUrl(null);
-      setRenderedImageUrl(null);
-      const msg = err instanceof Error ? err.message : '网络异常，请重试';
-      showToast(msg, 'error');
+      try {
+        const demoBlob = await createDemoCutoutBlob(file);
+        const outputUrl = URL.createObjectURL(demoBlob);
+        setRawResultImageUrl(outputUrl);
+        setStatus('success');
+        showToast('已切换为演示模式测试图', 'success');
+      } catch {
+        setStatus('idle');
+        setRawResultImageUrl(null);
+        setRenderedImageUrl(null);
+        const msg = err instanceof Error ? err.message : '网络异常，请重试';
+        showToast(msg, 'error');
+      }
     }
   };
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    if (status !== 'idle') return;
+    if (status === 'processing') return;
     const file = e.dataTransfer.files[0];
     if (file) handleFile(file);
   };
@@ -358,7 +498,12 @@ export const RemoveBg: React.FC = () => {
     setSourceImageUrl(null);
     setRawResultImageUrl(null);
     setRenderedImageUrl(null);
+    setEditMode(null);
     setAspectRatio('original');
+    setSizeOption('original');
+    setCustomWidth('');
+    setCustomHeight('');
+    setScalePercent(100);
     setBgColor('transparent');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -366,23 +511,34 @@ export const RemoveBg: React.FC = () => {
   };
 
   const download = () => {
+    if (editMode === 'size' && sizeOption === 'custom' && !hasValidCustomSize) {
+      showToast('请输入有效的宽高尺寸后再下载', 'error');
+      return;
+    }
+
     const downloadUrl = renderedImageUrl || rawResultImageUrl;
     if (!downloadUrl) {
       showToast('暂无可下载图片', 'error');
       return;
     }
+
+    const downloadSuffix =
+      editMode === 'ratio'
+        ? aspectRatio
+        : sizeOption === 'custom'
+          ? `${customWidth}x${customHeight}-${scalePercent}`
+          : `${sizeOption}-${scalePercent}`;
+
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = `cutout-${aspectRatio}.png`;
+    link.download = `cutout-${downloadSuffix}.png`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // Calculate container aspect ratio classes
-  const aspectRatioClass = SIZE_PRESETS.find(p => p.id === aspectRatio)?.ratioClass || 'aspect-auto';
   const activePreviewUrl = renderedImageUrl || rawResultImageUrl;
-  const finalExportAspectRatio = getPresetAspectRatio(aspectRatio) ?? previewAspectRatio;
+  const finalExportAspectRatio = isRatioMode ? getPresetAspectRatio(aspectRatio) ?? previewAspectRatio : previewAspectRatio;
 
   const bgColorClass = {
     'transparent': 'bg-grid-pattern',
@@ -391,182 +547,351 @@ export const RemoveBg: React.FC = () => {
   }[bgColor];
 
   return (
-    <div className="flex-1 w-full max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 flex flex-col h-full overflow-hidden">
-      <div className="mb-4 flex items-center gap-4 shrink-0">
-        <button 
-          onClick={() => navigate('/')}
-          className="group flex items-center justify-center w-10 h-10 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-slate-900 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm active:scale-95"
-          title="返回工作台"
-        >
-          <ArrowLeft className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" />
-        </button>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">智能抠图</h1>
-          <p className="text-sm text-slate-500 mt-1">精准提取商品主体，支持多尺寸与底色切换</p>
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0 pb-4">
-        {/* Main Canvas Area */}
-        <div className="flex-1 relative rounded-3xl bg-slate-100 border-2 border-dashed border-slate-200 overflow-hidden flex items-center justify-center">
-          
-          <AnimatePresence mode="wait">
-            {status === 'idle' && (
-              <motion.div
-                key="idle"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors"
-                onClick={() => fileInputRef.current?.click()}
-                onDrop={onDrop}
-                onDragOver={onDragOver}
-              >
-                <div className="h-20 w-20 rounded-full bg-white shadow-sm flex items-center justify-center mb-6 text-indigo-600">
-                  <UploadCloud className="h-10 w-10" />
+    <div className="flex-1 w-full flex flex-col h-full overflow-hidden bg-white rounded-xl shadow-sm">
+        <div className="flex-1 w-full p-4 sm:p-5 lg:p-6 flex flex-col h-full overflow-hidden">
+          <div className="flex-1 flex gap-5 min-h-0 h-full relative">
+            
+            {/* Left Control Panel: Dimensions and List */}
+            <div className="w-[232px] px-[2px] flex flex-col gap-3 transition-opacity duration-300 shrink-0 h-full overflow-visible">
+              <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-200 shrink-0">
+                <h3 className="text-sm font-semibold text-slate-900 mb-2.5">图片信息</h3>
+                <div className="flex gap-2">
+                  <button className="flex-1 py-1.5 text-xs font-medium text-violet-600 bg-violet-50 rounded-lg border border-violet-200">
+                    本地上传
+                  </button>
+                  <button className="flex-1 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 rounded-lg border border-slate-200 hover:bg-slate-100">
+                    商品主图
+                  </button>
                 </div>
-                <h3 className="text-xl font-semibold text-slate-700 mb-2">点击或拖拽商品图片至此</h3>
-                <p className="text-slate-400 text-sm">支持 JPG, PNG 格式，最大 10MB</p>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-                  accept="image/*"
-                  className="hidden"
-                />
-              </motion.div>
-            )}
-
-            {status === 'processing' && (
-              <motion.div
-                key="processing"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 flex items-center justify-center bg-slate-900/10 backdrop-blur-sm z-10"
-              >
-                {sourceImageUrl && (
-                  <img src={sourceImageUrl} alt="Original" className="absolute inset-0 w-full h-full object-contain opacity-30" />
-                )}
-                {/* Scanning line animation */}
-                <motion.div 
-                  className="absolute left-0 right-0 h-1 bg-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.8)]"
-                  animate={{ top: ['0%', '100%', '0%'] }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                />
-                <div className="relative z-20 bg-white/90 backdrop-blur px-6 py-3 rounded-full shadow-lg flex items-center gap-3">
-                  <RefreshCw className="h-5 w-5 text-indigo-600 animate-spin" />
-                  <span className="font-medium text-slate-800">正在精准提取商品主体...</span>
-                </div>
-              </motion.div>
-            )}
-
-            {status === 'success' && (
-              <motion.div
-                key="success"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="absolute inset-0 flex items-center justify-center p-8 bg-slate-200/50"
-              >
-                <div className="relative flex h-full w-full items-center justify-center rounded-[28px] bg-sky-50/70 p-4 shadow-inner">
-                  <div className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[24px] bg-white/35">
-                    <div
-                      className="relative flex max-h-full max-w-full items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-sky-400/90 bg-white shadow-[0_0_0_1px_rgba(56,189,248,0.14),0_0_24px_rgba(56,189,248,0.12)] transition-all duration-300"
-                      style={finalExportAspectRatio ? { aspectRatio: String(finalExportAspectRatio), height: '100%' } : undefined}
-                    >
-                      <div className={cn("absolute inset-0 rounded-2xl", bgColorClass)} />
-                      <div className="pointer-events-none absolute inset-0 rounded-2xl bg-sky-400/5" />
-                      {activePreviewUrl && (
-                        <img 
-                          src={activePreviewUrl} 
-                          alt="Cutout result" 
-                          className="relative z-10 h-full w-full object-contain drop-shadow-xl" 
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Control Panel */}
-        <div className={cn(
-          "w-full lg:w-80 flex flex-col gap-4 transition-opacity duration-300 shrink-0",
-          status === 'success' ? "opacity-100" : "opacity-30 pointer-events-none"
-        )}>
-          <div className="bg-white rounded-3xl p-5 shadow-sm ring-1 ring-slate-200 shrink-0">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3 uppercase tracking-wider">尺寸预设</h3>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {SIZE_PRESETS.map((preset) => (
                 <button
-                  key={preset.id}
-                  onClick={() => setAspectRatio(preset.id)}
-                  className={cn(
-                    "flex flex-col items-center justify-center gap-1.5 py-3 px-1 rounded-xl transition-all border-2",
-                    aspectRatio === preset.id 
-                      ? "border-indigo-600 bg-indigo-50 text-indigo-600 shadow-sm" 
-                      : "border-transparent bg-slate-50 text-slate-600 hover:bg-slate-100"
-                  )}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-violet-200 bg-violet-50 px-3 py-2 text-sm font-medium text-violet-600 transition-colors hover:border-violet-300 hover:bg-violet-100"
                 >
-                  <div className="h-6 flex items-center justify-center">
-                    {preset.icon}
-                  </div>
-                  <span className="text-[10px] font-medium leading-tight text-center">{preset.name}</span>
+                  <UploadCloud className="h-4 w-4" />
+                  {hasSourceImage ? '重新上传图片' : '上传图片'}
                 </button>
-              ))}
+                <p className="mt-2 text-[11px] leading-4 text-slate-400">支持 JPG、PNG 格式，单张图片不超过 10MB</p>
+                <div className="mt-2.5 grid grid-cols-3 gap-2">
+                  <div className="aspect-square rounded-lg border-2 border-dashed border-slate-200 overflow-hidden relative bg-slate-50">
+                    {sourceImageUrl ? (
+                      <img src={sourceImageUrl} alt="source preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-[11px] text-slate-400">待上传</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className={cn(
+                  'bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-200 shrink-0 transition-all duration-300',
+                  isSizeMode && 'ring-2 ring-violet-500/20 border-violet-200',
+                  hasResult ? 'opacity-100' : 'opacity-40 pointer-events-none'
+                )}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">改图片尺寸</h3>
+                  <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium', isSizeMode ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500')}>
+                    {isSizeMode ? '已启用' : '可切换'}
+                  </span>
+                </div>
+                <p className="mb-2.5 text-[11px] leading-4 text-slate-400">选择尺寸后会自动关闭比例调整，下载按当前尺寸导出。</p>
+                <div className="grid grid-cols-2 gap-2 mb-2.5">
+                  {SIZE_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => {
+                        setEditMode('size');
+                        setSizeOption(option.id);
+                      }}
+                      className={cn(
+                        'rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors',
+                        isSizeMode && sizeOption === option.id
+                          ? 'border-violet-600 bg-violet-50 text-violet-600'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={customWidth}
+                    onFocus={() => {
+                      setEditMode('size');
+                      setSizeOption('custom');
+                    }}
+                    onChange={(e) => {
+                      setEditMode('size');
+                      setSizeOption('custom');
+                      setCustomWidth(e.target.value);
+                    }}
+                    placeholder="宽(PX)"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  />
+                  <span className="text-slate-400">×</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={customHeight}
+                    onFocus={() => {
+                      setEditMode('size');
+                      setSizeOption('custom');
+                    }}
+                    onChange={(e) => {
+                      setEditMode('size');
+                      setSizeOption('custom');
+                      setCustomHeight(e.target.value);
+                    }}
+                    placeholder="高(PX)"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 w-10">缩放</span>
+                  <input
+                    type="range"
+                    min="10"
+                    max="200"
+                    value={scalePercent}
+                    onInput={(e) => handleScalePercentChange(Number((e.target as HTMLInputElement).value))}
+                    onChange={(e) => handleScalePercentChange(Number(e.target.value))}
+                    className="flex-1 accent-violet-600"
+                  />
+                  <span className="text-xs text-slate-500 w-9 text-right">{scalePercent}%</span>
+                </div>
+                {sizeOption === 'custom' && !hasValidCustomSize && isSizeMode && (
+                  <p className="mt-2 text-[11px] text-amber-600">请输入有效宽高后再下载。</p>
+                )}
+              </div>
+
+              <div
+                className={cn(
+                  'bg-white rounded-2xl p-3 shadow-sm ring-1 ring-slate-200 shrink-0 transition-all duration-300',
+                  isRatioMode && 'ring-2 ring-violet-500/20 border-violet-200',
+                  hasResult ? 'opacity-100' : 'opacity-40 pointer-events-none'
+                )}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">改图片比例</h3>
+                  <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium', isRatioMode ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500')}>
+                    {isRatioMode ? '已启用' : '可切换'}
+                  </span>
+                </div>
+                <p className="mb-2.5 text-[11px] leading-4 text-slate-400">选择比例后会自动关闭尺寸调整，下载按当前比例导出。</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {SIZE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      onClick={() => {
+                        setEditMode('ratio');
+                        setAspectRatio(preset.id);
+                      }}
+                      className={cn(
+                        "flex min-h-11 flex-col items-center justify-center gap-1 px-1 py-1.5 rounded-xl transition-all border",
+                        isRatioMode && aspectRatio === preset.id 
+                          ? "border-violet-600 bg-violet-50 text-violet-600" 
+                          : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                      )}
+                    >
+                      <span className="text-[10px] font-medium leading-tight text-center">{preset.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Main Canvas Area */}
+            <div
+              className="flex-1 relative rounded-2xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center h-full"
+              onDrop={onDrop}
+              onDragOver={onDragOver}
+            >
+              <AnimatePresence mode="wait">
+                {status === 'idle' && (
+                  <motion.div
+                    key="idle"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 flex items-center justify-center p-6"
+                  >
+                    <div className="flex h-full w-full max-w-3xl flex-col items-center justify-center rounded-[28px] border border-dashed border-slate-300 bg-white/75 px-6 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] backdrop-blur-sm">
+                      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-violet-100 text-violet-600 shadow-sm">
+                        <UploadCloud className="h-10 w-10" />
+                      </div>
+                      <h2 className="text-3xl font-bold tracking-tight text-slate-900">直接上传图片开始抠图</h2>
+                      <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">
+                        无需先进入功能引导页，上传后会直接在当前编辑区完成抠图、比例调整与背景切换。
+                      </p>
+                      <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="flex items-center gap-2 rounded-xl bg-violet-600 px-6 py-3 text-sm font-medium text-white shadow-lg shadow-violet-600/20 transition-colors hover:bg-violet-700"
+                        >
+                          <UploadCloud className="h-5 w-5" />
+                          上传图片
+                        </button>
+                        <button
+                          onClick={() => showToast('批量上传功能开发中...', 'success')}
+                          className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                        >
+                          批量上传
+                        </button>
+                      </div>
+                      <p className="mt-4 text-xs text-slate-400">支持拖拽上传，支持 JPG、PNG 格式，单张图片不超过 10MB</p>
+                    </div>
+                  </motion.div>
+                )}
+
+                {status === 'processing' && (
+                  <motion.div
+                    key="processing"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50/90 backdrop-blur-sm z-10"
+                  >
+                    {sourceImageUrl && (
+                      <div className="w-48 h-48 relative mb-6 rounded-2xl overflow-hidden shadow-lg border-2 border-white">
+                        <img src={sourceImageUrl} alt="Original" className="w-full h-full object-cover opacity-80" />
+                        {/* Scanning line animation */}
+                        <motion.div 
+                          className="absolute left-0 right-0 h-1 bg-violet-500 shadow-[0_0_15px_rgba(139,92,246,1)]"
+                          animate={{ top: ['0%', '100%', '0%'] }}
+                          transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 mb-4">
+                      <RefreshCw className="h-5 w-5 text-violet-600 animate-spin" />
+                      <span className="font-medium text-slate-800 text-lg">正在进行智能分析...</span>
+                    </div>
+                    <div className="w-64 bg-slate-200 rounded-full h-2 overflow-hidden mb-6">
+                      <motion.div 
+                        className="bg-violet-600 h-full" 
+                        initial={{ width: "0%" }} 
+                        animate={{ width: "85%" }} 
+                        transition={{ duration: 2, ease: "easeOut" }} 
+                      />
+                    </div>
+                    <button 
+                      onClick={reset}
+                      className="px-6 py-2 bg-white text-slate-600 rounded-full border border-slate-200 hover:bg-slate-50 font-medium transition-colors"
+                    >
+                      取消处理
+                    </button>
+                  </motion.div>
+                )}
+
+                {status === 'success' && (
+                  <motion.div
+                    key="success"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="absolute inset-0 flex items-center justify-center p-6"
+                  >
+                    <div className="relative flex h-full w-full items-center justify-center">
+                      <div
+                        className="relative flex max-h-full max-w-full items-center justify-center overflow-hidden rounded-xl border border-slate-300 shadow-sm transition-all duration-300"
+                        style={finalExportAspectRatio ? { aspectRatio: String(finalExportAspectRatio), height: '100%' } : undefined}
+                      >
+                        <div className={cn("absolute inset-0", bgColorClass)} />
+                        {activePreviewUrl && (
+                          <img 
+                            src={activePreviewUrl} 
+                            alt="Cutout result" 
+                            className="relative z-10 h-full w-full object-contain drop-shadow-md" 
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Right Control Panel: Tools & Output */}
+            <div className={cn(
+              "w-64 flex flex-col gap-4 transition-opacity duration-300 shrink-0 h-full",
+              hasResult ? "opacity-100" : "opacity-40 pointer-events-none"
+            )}>
+              <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-slate-200 shrink-0">
+                <h3 className="text-sm font-semibold text-slate-900 mb-3">背景颜色</h3>
+                <div className="grid grid-cols-4 gap-2 mb-3">
+                  <button
+                    onClick={() => setBgColor('transparent')}
+                    className={cn(
+                      "aspect-square rounded-lg border transition-all bg-grid-pattern",
+                      bgColor === 'transparent' ? "border-violet-600 ring-2 ring-violet-600/20" : "border-slate-200 hover:border-slate-300"
+                    )}
+                    title="透明"
+                  />
+                  <button
+                    onClick={() => setBgColor('white')}
+                    className={cn(
+                      "aspect-square rounded-lg border transition-all bg-white",
+                      bgColor === 'white' ? "border-violet-600 ring-2 ring-violet-600/20" : "border-slate-200 hover:border-slate-300"
+                    )}
+                    title="纯白"
+                  />
+                  <button
+                    onClick={() => setBgColor('black')}
+                    className={cn(
+                      "aspect-square rounded-lg border transition-all bg-black",
+                      bgColor === 'black' ? "border-violet-600 ring-2 ring-violet-600/20" : "border-slate-200 hover:border-slate-700"
+                    )}
+                    title="纯黑"
+                  />
+                  <button
+                    className="aspect-square rounded-lg border border-slate-200 transition-all bg-slate-200 hover:border-slate-300"
+                    title="灰色"
+                  />
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 via-green-500 to-blue-500 cursor-pointer border-2 border-white shadow-sm ring-1 ring-slate-200" title="自定义色盘"></div>
+                  <input type="text" placeholder="#FFFFFF" className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-violet-500" />
+                </div>
+                <button className="w-full mt-3 flex items-center justify-center gap-1.5 bg-violet-50 text-violet-600 py-2 rounded-lg text-sm font-medium border border-violet-100 hover:bg-violet-100 transition-colors">
+                  <span className="text-lg leading-none pt-0.5">✨</span> 一键生成AI背景
+                </button>
+              </div>
+
+              <div className="mt-auto bg-white rounded-2xl p-4 shadow-sm ring-1 ring-slate-200 flex flex-col gap-3 shrink-0">
+                <button
+                  onClick={download}
+                  className="w-full flex items-center justify-center gap-2 bg-violet-600 text-white py-3 rounded-xl font-medium hover:bg-violet-700 active:scale-[0.98] transition-all shadow-md shadow-violet-600/20"
+                >
+                  <Download className="h-5 w-5" />
+                  {isSizeMode ? '按尺寸下载' : isRatioMode ? '按比例下载' : '下载图片'}
+                </button>
+                <button
+                  onClick={() => showToast('已保存至商品库', 'success')}
+                  className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-3 rounded-xl font-medium hover:bg-slate-800 active:scale-[0.98] transition-all shadow-md"
+                >
+                  保存到商品
+                </button>
+                <button
+                  onClick={reset}
+                  className="w-full flex items-center justify-center gap-2 bg-white text-slate-700 py-3 rounded-xl font-medium border border-slate-200 hover:bg-slate-50 active:scale-[0.98] transition-all"
+                >
+                  再次上传
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl p-5 shadow-sm ring-1 ring-slate-200 shrink-0">
-            <h3 className="text-sm font-semibold text-slate-900 mb-3 uppercase tracking-wider">背景底色</h3>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                onClick={() => setBgColor('transparent')}
-                className={cn(
-                  "h-12 rounded-xl border-2 transition-all bg-grid-pattern",
-                  bgColor === 'transparent' ? "border-indigo-600 ring-2 ring-indigo-600/20" : "border-transparent hover:border-slate-300"
-                )}
-                title="透明网格"
-              />
-              <button
-                onClick={() => setBgColor('white')}
-                className={cn(
-                  "h-12 rounded-xl border-2 transition-all bg-white shadow-sm",
-                  bgColor === 'white' ? "border-indigo-600 ring-2 ring-indigo-600/20" : "border-slate-200 hover:border-slate-300"
-                )}
-                title="纯白"
-              />
-              <button
-                onClick={() => setBgColor('black')}
-                className={cn(
-                  "h-12 rounded-xl border-2 transition-all bg-black",
-                  bgColor === 'black' ? "border-indigo-600 ring-2 ring-indigo-600/20" : "border-transparent hover:border-slate-700"
-                )}
-                title="纯黑"
-              />
-            </div>
-          </div>
-
-          <div className="mt-auto flex flex-col gap-3 shrink-0 pt-2">
-            <button
-              onClick={download}
-              className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white py-4 rounded-2xl font-semibold text-lg hover:bg-indigo-700 active:scale-[0.98] transition-all shadow-lg shadow-indigo-600/20"
-            >
-              <Download className="h-6 w-6" />
-              下载高清原图
-            </button>
-            <button
-              onClick={reset}
-              className="w-full flex items-center justify-center gap-2 bg-white text-slate-700 py-3 rounded-2xl font-medium hover:bg-slate-50 active:scale-[0.98] transition-all ring-1 ring-slate-200"
-            >
-              <RefreshCw className="h-4 w-4" />
-              上传新图片
-            </button>
-          </div>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            accept="image/*"
+            className="hidden"
+          />
         </div>
-      </div>
     </div>
   );
 };

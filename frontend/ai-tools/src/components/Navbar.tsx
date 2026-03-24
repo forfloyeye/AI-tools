@@ -1,54 +1,73 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, User } from 'lucide-react';
+import { LogOut, HelpCircle, Clock } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useAppContext } from '../context/AppContext';
 
 export const Navbar: React.FC = () => {
-  const { user, points, openAuthModal, logout, showToast } = useAppContext();
+  const { user, openAuthModal, logout, showToast } = useAppContext();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   return (
-    <nav className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white/80 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 relative">
+    <nav className="sticky top-0 z-40 w-full border-b border-slate-200 bg-white shadow-sm">
+      <div className="mx-auto flex h-16 w-full px-4 sm:px-6 lg:px-8 relative justify-between items-center">
         <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-sm">
-            <span className="font-bold">E</span>
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 text-white shadow-sm">
+            <span className="font-bold text-lg">破</span>
           </div>
-          <span className="text-lg font-semibold tracking-tight text-slate-900">E-Tool</span>
+          <span className="text-xl font-bold tracking-tight text-slate-900">破军星AI工具箱</span>
         </Link>
 
         {/* Middle Navigation */}
         <div className="hidden md:flex items-center gap-8 absolute left-1/2 -translate-x-1/2 h-full">
-          <button 
-            onClick={() => showToast('一键铺货功能开发中...', 'success')} 
-            className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors h-full flex items-center"
-          >
-            一键铺货
-          </button>
-          <button 
-            onClick={() => showToast('商品管理功能开发中...', 'success')} 
-            className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors h-full flex items-center"
-          >
-            商品管理
-          </button>
-          <div className="text-sm font-medium text-indigo-600 relative h-full flex items-center cursor-default">
-            图片处理
+          <div className="text-base font-semibold text-violet-600 relative h-full flex items-center cursor-default">
+            AI工具
             <motion.div 
-              className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" 
+              className="absolute bottom-0 left-0 right-0 h-0.5 bg-violet-600" 
               layoutId="activeTab" 
             />
           </div>
+          <button 
+            onClick={() => showToast('商品管理模块开发中...', 'success')} 
+            className="text-base font-medium text-slate-600 hover:text-violet-600 transition-colors h-full flex items-center"
+          >
+            商品管理
+          </button>
+          <button 
+            onClick={() => showToast('商品检测模块开发中...', 'success')} 
+            className="text-base font-medium text-slate-600 hover:text-violet-600 transition-colors h-full flex items-center"
+          >
+            商品检测
+          </button>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-6">
+          <button
+            onClick={() => showToast('联系客服', 'success')}
+            className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 transition-colors group relative"
+          >
+            <HelpCircle className="w-4 h-4" />
+            <span>客服</span>
+            {/* Hover tooltip for QR could go here */}
+            <div className="absolute right-0 top-full mt-2 w-32 p-2 bg-white border border-slate-200 shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all rounded-lg flex flex-col items-center z-50">
+              <div className="w-24 h-24 bg-slate-100 mb-2 flex items-center justify-center text-xs text-slate-400">二维码</div>
+              <span className="text-xs text-slate-600">扫码联系客服</span>
+            </div>
+          </button>
+
+          <div className="flex items-center gap-3 bg-amber-50/50 pl-3 pr-1.5 py-1.5 rounded-full border border-amber-100">
+            <div className="flex items-center gap-1.5 text-sm">
+              <Clock className="w-4 h-4 text-amber-600" />
+              <span className="text-slate-600">服务有效期</span>
+              <span className="text-amber-600 font-medium">剩余 23 天</span>
+            </div>
+            <button className="bg-violet-600 hover:bg-violet-700 text-white text-xs px-3 py-1 rounded-full transition-colors font-medium">
+              续费
+            </button>
+          </div>
+
           {user ? (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 ring-1 ring-amber-600/20">
-                <span>🪙</span>
-                <span>{points} 点</span>
-              </div>
-              
+            <div className="flex items-center gap-4 ml-2">
               <div className="relative">
                 <button
                   onClick={() => setIsDropdownOpen(!isDropdownOpen)}

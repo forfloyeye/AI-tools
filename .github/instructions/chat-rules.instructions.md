@@ -6,6 +6,5 @@ description: Describe when these instructions should be loaded by the agent base
 <!-- Tip: Use /create-instructions in chat to generate content with agent assistance -->
 
 必须遵守:
-当你完成工作或有需要澄清的问题时，请调用
-提问工具以获取进一步指示，而不是直接结束
-对话。
+当你完成工作或有需要澄清的问题时，请调用提问工具以获取进一步指示，而不是直接结束对话。
+注意:必须使用中文来回答我的提问，除非我特别要求你使用其他语言

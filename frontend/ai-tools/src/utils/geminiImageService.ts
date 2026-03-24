@@ -1,3 +1,5 @@
+import { createDemoSceneImagesFromFiles } from './demoImageFactory';
+
 function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -12,35 +14,64 @@ function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }>
   });
 }
 
+export interface SceneSourceImagePayload {
+  imageBase64: string;
+  mimeType: string;
+}
+
+export interface GenerateProductSceneResult {
+  imageDataList: string[];
+  demoMode?: boolean;
+}
+
 export async function generateProductScene(
-  file: File,
+  files: File[],
   sceneId: string,
   customPrompt?: string,
   count: number = 1,
-): Promise<string[]> {
-  // Keep compatibility with existing app auth storage key.
+): Promise<GenerateProductSceneResult> {
   const token = localStorage.getItem('token') ?? localStorage.getItem('auth_token');
-  if (!token) throw new Error('请先登录');
-
-  const { base64, mimeType } = await fileToBase64(file);
-
-  const res = await fetch('/api/ai-scene/generate', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ imageBase64: base64, mimeType, sceneId, customPrompt, count }),
+  const useDemoFallback = async () => ({
+    imageDataList: await createDemoSceneImagesFromFiles(files, customPrompt?.trim() || sceneId, count),
+    demoMode: true,
   });
 
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error ?? 'AI 生成失败，请重试');
+  if (!token) {
+    return useDemoFallback();
   }
 
-  // 优先返回 imageDataList，兜底转化 imageData
-  if (Array.isArray(data.imageDataList) && data.imageDataList.length > 0) {
-    return data.imageDataList as string[];
+  const sourceImages = await Promise.all(files.map((file) => fileToBase64(file)));
+  const primaryImage = sourceImages[0];
+
+  try {
+    const res = await fetch('/api/ai-scene/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        imageBase64: primaryImage?.base64,
+        mimeType: primaryImage?.mimeType,
+        imageBase64List: sourceImages.map((item) => item.base64),
+        sourceImages: sourceImages.map((item) => ({ imageBase64: item.base64, mimeType: item.mimeType })),
+        sceneId,
+        customPrompt,
+        count,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      return useDemoFallback();
+    }
+
+    if (Array.isArray(data.imageDataList) && data.imageDataList.length > 0) {
+      return { imageDataList: data.imageDataList as string[] };
+    }
+
+    return { imageDataList: [data.imageData as string] };
+  } catch {
+    return useDemoFallback();
   }
-  return [data.imageData as string];
 }

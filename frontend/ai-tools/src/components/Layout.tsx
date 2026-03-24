@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { Navbar } from './Navbar';
+import { Sidebar } from './Sidebar';
 import { AuthModal } from './AuthModal';
 import { Toast } from './Toast';
 import { useAppContext } from '../context/AppContext';
@@ -8,25 +9,27 @@ import { useAppContext } from '../context/AppContext';
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthModalOpen } = useAppContext();
   const location = useLocation();
-  const isAiScenePage = location.pathname === '/tools/ai-scene';
+  const useContainedScrollLayout = ['/tools/ai-scene', '/tools/ai-product-set'].includes(location.pathname);
 
   return (
-    <div className="h-full bg-slate-50 flex flex-col font-sans text-slate-900 relative overflow-hidden">
-      {/* Decorative background blobs */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-200/30 blur-[100px]" />
-        <div className="absolute top-[20%] right-[-10%] w-[30%] h-[40%] rounded-full bg-violet-200/30 blur-[100px]" />
-        <div className="absolute bottom-[-10%] left-[20%] w-[50%] h-[40%] rounded-full bg-fuchsia-200/20 blur-[100px]" />
-      </div>
-
+    <div className="h-screen bg-slate-50 flex flex-col font-sans text-slate-900 overflow-hidden">
       <Navbar />
-      <main
-        className={isAiScenePage
-          ? 'flex-1 min-h-0 flex flex-col relative z-10 overflow-hidden'
-          : 'flex-1 min-h-0 flex flex-col relative z-10 overflow-y-auto overflow-x-hidden custom-scrollbar'}
-      >
-        {children}
-      </main>
+      
+      <div className="flex-1 flex min-h-0 relative z-10 w-full">
+        <Sidebar />
+        
+        <main className="flex-1 min-w-0 h-full overflow-hidden flex flex-col">
+          <div
+            className={
+              useContainedScrollLayout
+                ? 'relative flex-1 h-full min-h-0 overflow-hidden p-0'
+                : 'flex-1 overflow-y-auto custom-scrollbar h-full relative p-4 lg:p-6 pb-0'
+            }
+          >
+            {children}
+          </div>
+        </main>
+      </div>
       
       {/* Modals and Toasts */}
       {isAuthModalOpen && <AuthModal />}
