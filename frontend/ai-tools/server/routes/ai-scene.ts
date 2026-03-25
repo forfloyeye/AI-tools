@@ -69,11 +69,20 @@ interface AiSceneBody {
   sceneId?: unknown;
   customPrompt?: unknown;
   count?: unknown;
+  outputSize?: unknown;
 }
 
 interface SourceImagePayload {
   imageBase64: string;
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+}
+
+interface OutputSizePayload {
+  id: string;
+  name: string;
+  label: string;
+  width: number;
+  height: number;
 }
 
 type RouteError = Error & { code?: string; cause?: { code?: string } };
@@ -106,6 +115,7 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
   }
 
   const { imageBase64, imageBase64List, mimeType, sourceImages, sceneId, customPrompt, count: countRaw } = req.body as AiSceneBody;
+  const outputSizeRaw = (req.body as AiSceneBody).outputSize;
 
   if (typeof sceneId !== 'string' && typeof customPrompt !== 'string') {
     return res.status(400).json({ error: '请提供场景ID或自定义描述' });
@@ -150,6 +160,23 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
     : 1;
   const totalCost = normalizedSources.length * count * AI_SCENE_COST;
 
+  const outputSize: OutputSizePayload | null =
+    outputSizeRaw &&
+    typeof outputSizeRaw === 'object' &&
+    typeof (outputSizeRaw as Record<string, unknown>).id === 'string' &&
+    typeof (outputSizeRaw as Record<string, unknown>).name === 'string' &&
+    typeof (outputSizeRaw as Record<string, unknown>).label === 'string' &&
+    typeof (outputSizeRaw as Record<string, unknown>).width === 'number' &&
+    typeof (outputSizeRaw as Record<string, unknown>).height === 'number'
+      ? {
+          id: (outputSizeRaw as Record<string, unknown>).id as string,
+          name: (outputSizeRaw as Record<string, unknown>).name as string,
+          label: (outputSizeRaw as Record<string, unknown>).label as string,
+          width: (outputSizeRaw as Record<string, unknown>).width as number,
+          height: (outputSizeRaw as Record<string, unknown>).height as number,
+        }
+      : null;
+
   try {
     const user = db
       .prepare('SELECT free_credits, paid_credits FROM users WHERE id = ?')
@@ -187,6 +214,7 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
                 text:
                   `You are a professional e-commerce product photographer. ` +
                   `${scenePrompt} ` +
+                  `${outputSize ? `Compose the final image for a ${outputSize.name} frame and target a ${outputSize.width}x${outputSize.height}px output. ` : ''}` +
                   `Keep the product clearly visible and well-lit. ` +
                   `Output only the final composite product photo with no extra text or borders.`,
               },

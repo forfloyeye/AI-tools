@@ -1,4 +1,5 @@
 import { createDemoSceneImagesFromFiles } from './demoImageFactory';
+import type { OutputSizeOption } from '../constants/presets';
 
 function fileToBase64(file: File): Promise<{ base64: string; mimeType: string }> {
   return new Promise((resolve, reject) => {
@@ -29,6 +30,7 @@ export async function generateProductScene(
   sceneId: string,
   customPrompt?: string,
   count: number = 1,
+  outputSize?: OutputSizeOption,
 ): Promise<GenerateProductSceneResult> {
   const token = localStorage.getItem('token') ?? localStorage.getItem('auth_token');
   const useDemoFallback = async () => ({
@@ -58,6 +60,7 @@ export async function generateProductScene(
         sceneId,
         customPrompt,
         count,
+        outputSize,
       }),
     });
 

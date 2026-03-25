@@ -5,7 +5,7 @@ import { useAppContext } from '../context/AppContext';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import { SIZE_PRESETS, type PresetId } from '../constants/presets';
+import { OUTPUT_SIZE_OPTIONS, type PresetId } from '../constants/presets';
 import { createDemoCutoutBlob } from '../utils/demoImageFactory';
 
 function cn(...inputs: ClassValue[]) {
@@ -28,13 +28,16 @@ const SIZE_OPTIONS: Array<{ id: SizeOptionId; label: string; width?: number; hei
 ];
 
 const PRESET_TARGET_SIZE: Partial<Record<PresetId, { width: number; height: number }>> = {
-  'tb-1-1': { width: 800, height: 800 },
-  'tb-3-4': { width: 900, height: 1200 },
-  pdd: { width: 1000, height: 1000 },
-  'ratio-1-1': { width: 1080, height: 1080 },
-  'ratio-2-3': { width: 1200, height: 1800 },
-  'ratio-3-4': { width: 1080, height: 1440 },
-  'ratio-9-16': { width: 1080, height: 1920 },
+  'tb-1-1': { width: 1440, height: 1440 },
+  'tb-3-4': { width: 1440, height: 1920 },
+  pdd: { width: 800, height: 800 },
+  'ratio-1-1': { width: 1440, height: 1440 },
+  'ratio-3-2': { width: 1200, height: 800 },
+  'ratio-2-3': { width: 800, height: 1200 },
+  'ratio-4-3': { width: 1920, height: 1440 },
+  'ratio-3-4': { width: 1440, height: 1920 },
+  'ratio-16-9': { width: 1422, height: 800 },
+  'ratio-9-16': { width: 800, height: 1422 },
 };
 
 function getPresetAspectRatio(preset: PresetId): number | null {
@@ -319,7 +322,7 @@ export const RemoveBg: React.FC = () => {
   const { refreshProfile, showToast } = useAppContext();
   const [status, setStatus] = useState<Status>('idle');
   const [editMode, setEditMode] = useState<EditMode>(null);
-  const [aspectRatio, setAspectRatio] = useState<PresetId>('original');
+  const [aspectRatio, setAspectRatio] = useState<PresetId>('ratio-1-1');
   const [sizeOption, setSizeOption] = useState<SizeOptionId>('original');
   const [customWidth, setCustomWidth] = useState('');
   const [customHeight, setCustomHeight] = useState('');
@@ -499,7 +502,7 @@ export const RemoveBg: React.FC = () => {
     setRawResultImageUrl(null);
     setRenderedImageUrl(null);
     setEditMode(null);
-    setAspectRatio('original');
+    setAspectRatio('ratio-1-1');
     setSizeOption('original');
     setCustomWidth('');
     setCustomHeight('');
@@ -682,25 +685,20 @@ export const RemoveBg: React.FC = () => {
                   </span>
                 </div>
                 <p className="mb-2.5 text-[11px] leading-4 text-slate-400">选择比例后会自动关闭尺寸调整，下载按当前比例导出。</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {SIZE_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      onClick={() => {
-                        setEditMode('ratio');
-                        setAspectRatio(preset.id);
-                      }}
-                      className={cn(
-                        "flex min-h-11 flex-col items-center justify-center gap-1 px-1 py-1.5 rounded-xl transition-all border",
-                        isRatioMode && aspectRatio === preset.id 
-                          ? "border-violet-600 bg-violet-50 text-violet-600" 
-                          : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
-                      )}
-                    >
-                      <span className="text-[10px] font-medium leading-tight text-center">{preset.name}</span>
-                    </button>
+                <select
+                  value={aspectRatio}
+                  onChange={(event) => {
+                    setEditMode('ratio');
+                    setAspectRatio(event.target.value as PresetId);
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:bg-white focus:ring-4 focus:ring-violet-100"
+                >
+                  {OUTPUT_SIZE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
                   ))}
-                </div>
+                </select>
               </div>
             </div>
 

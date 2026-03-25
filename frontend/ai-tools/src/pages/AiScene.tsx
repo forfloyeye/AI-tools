@@ -15,7 +15,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
 import { useAppContext } from '../context/AppContext';
-import { SIZE_PRESETS, type PresetId } from '../constants/presets';
+import { OUTPUT_SIZE_OPTIONS, type PresetId } from '../constants/presets';
 import { generateProductScene } from '../utils/geminiImageService';
 
 function cn(...inputs: ClassValue[]) {
@@ -212,7 +212,8 @@ export const AiScene: React.FC = () => {
         uploadedImages.map((item) => item.file),
         activeSceneId,
         sceneMode === 'custom' ? customPrompt : undefined,
-        genCount
+        genCount,
+        OUTPUT_SIZE_OPTIONS.find((option) => option.id === aspectRatio)
       );
       const mappedResults = response.imageDataList.map((imageUrl, index) => ({
         id: `result-${Date.now()}-${index}`,
@@ -478,23 +479,17 @@ export const AiScene: React.FC = () => {
                 <div className="flex flex-col gap-4 p-4">
                   <div>
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">输出尺寸</p>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {SIZE_PRESETS.map((preset) => (
-                        <button
-                          key={preset.id}
-                          onClick={() => setAspectRatio(preset.id)}
-                          className={cn(
-                            'flex flex-col items-center justify-center gap-1 rounded-xl border-2 px-1 py-2 text-[10px] font-medium transition-all',
-                            aspectRatio === preset.id
-                              ? 'border-violet-600 bg-violet-50 text-violet-600 shadow-sm'
-                              : 'border-transparent bg-slate-50 text-slate-600 hover:bg-slate-100'
-                          )}
-                        >
-                          <div className="flex h-5 items-center justify-center">{preset.icon}</div>
-                          <span className="text-center leading-tight">{preset.name}</span>
-                        </button>
+                    <select
+                      value={aspectRatio}
+                      onChange={(event) => setAspectRatio(event.target.value as PresetId)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-violet-300 focus:bg-white focus:ring-4 focus:ring-violet-100"
+                    >
+                      {OUTPUT_SIZE_OPTIONS.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
                       ))}
-                    </div>
+                    </select>
                   </div>
 
                   <div>
@@ -651,7 +646,7 @@ export const AiScene: React.FC = () => {
                       )}
                     >
                       {resultImages.map((item, index) => {
-                        const ratioClass = SIZE_PRESETS.find((preset) => preset.id === aspectRatio)?.ratioClass ?? 'aspect-auto';
+                        const ratioClass = OUTPUT_SIZE_OPTIONS.find((option) => option.id === aspectRatio)?.ratioClass ?? 'aspect-auto';
 
                         return (
                           <div key={item.id} className="group relative min-h-0 overflow-hidden rounded-xl bg-slate-800">
